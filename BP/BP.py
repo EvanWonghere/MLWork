@@ -4,160 +4,122 @@
 # @File    : BP.py
 # @Project : MLWork
 
-# -*- coding: utf-8 -*-
-# 本程序由UESTC的BigMoyan完成，并供所有人免费参考学习，但任何对本程序的使用必须包含这条声明
-import math
-import struct
-
 import numpy as np
-import scipy.io as sio
-
-# 读入数据
-################################################################################################
-print("输入样本文件名（需放在程序目录下）")
-filename = 'mnist_train.mat'  # raw_input() # 换成raw_input()可自由输入文件名
-sample = sio.loadmat(filename)
-sample = sample["mnist_train"]
-sample /= 256.0  # 特征向量归一化
-
-print("输入标签文件名（需放在程序目录下）")
-filename = 'mnist_train_labels.mat'  # raw_input() # 换成raw_input()可自由输入文件名
-label = sio.loadmat(filename)
-label = label["mnist_train_labels"]
-
-train_images_path = 'C:/Users/evanwong/Downloads/archive/train-images.idx3-ubyte'
-train_labels_path = 'C:/Users/evanwong/Downloads/archive/train-labels.idx1-ubyte'
-test_images_path = 'C:/Users/evanwong/Downloads/archive/t10k-images.idx3-ubyte'
-test_labels_path = 'C:/Users/evanwong/Downloads/archive/t10k-labels.idx1-ubyte'
+import tensorflow as tf
 
 
-def load_idx(filename):
-    with open(filename, 'rb') as f:
-        zero, data_type, dims = struct.unpack('>HBB', f.read(4))
-        shape = tuple(struct.unpack('>I', f.read(4))[0] for d in range(dims))
-        return np.frombuffer(f.read(), dtype=np.uint8).reshape(shape)
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    """
+    Sigmoid 激活函数。
+
+    :param x: 输入数组
+    :return: 经 Sigmoid 激活后的输出数组
+    """
+    return 1 / (1 + np.exp(-x))
 
 
-X_train = load_idx(train_images_path)
-y_train = load_idx(train_labels_path)
-X_test = load_idx(test_images_path)
-y_test = load_idx(test_labels_path)
+def calc_error(e: np.ndarray) -> float:
+    """
+    计算误差 (0.5 * sum(e^2))。
 
-X_train = X_train.reshape((X_train.shape[0], 28 * 28)).astype('float32') / 255
-X_test = X_test.reshape((X_test.shape[0], 28 * 28)).astype('float32') / 255
-##################################################################################################
-
-
-# 神经网络配置
-##################################################################################################
-samp_num = len(sample)  # 样本总数
-inp_num = len(sample[0])  # 输入层节点数
-out_num = 10  # 输出节点数
-hid_num = 9  # 隐层节点数(经验公式)
-w1 = 0.2 * np.random.random((inp_num, hid_num)) - 0.1  # 初始化输入层权矩阵
-w2 = 0.2 * np.random.random((hid_num, out_num)) - 0.1  # 初始化隐层权矩阵
-hid_offset = np.zeros(hid_num)  # 隐层偏置向量
-out_offset = np.zeros(out_num)  # 输出层偏置向量
-inp_lrate = 0.3  # 输入层权值学习率
-hid_lrate = 0.3  # 隐层学权值习率
-err_th = 0.01  # 学习误差门限
-
-
-###################################################################################################
-
-# 必要函数定义
-###################################################################################################
-def get_act(x):
-    act_vec = []
-    for i in x:
-        act_vec.append(1 / (1 + math.exp(-i)))
-    act_vec = np.array(act_vec)
-    return act_vec
-
-
-def get_err(e):
+    :param e: 误差向量 (预测值 - 真实值)
+    :return: 误差标量值
+    """
     return 0.5 * np.dot(e, e)
 
 
-###################################################################################################
+# ==================== 数据加载部分（使用 TensorFlow） ====================
+print("加载 MNIST 数据集（使用 TensorFlow）...")
+(x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
 
-# 训练——可使用err_th与get_err() 配合，提前结束训练过程
-###################################################################################################
+# 数据预处理：将图像展开为一维向量，并归一化到 [0,1]
+x_train = x_train.reshape(x_train.shape[0], 28*28).astype('float32') / 255.0
+x_test = x_test.reshape(x_test.shape[0], 28*28).astype('float32') / 255.0
 
-for count in range(0, samp_num):
-    print(count)
+print(f"训练集大小: {x_train.shape}, 测试集大小: {x_test.shape}")
+
+# ============= 神经网络配置 =============
+samp_num = x_train.shape[0]       # 样本总数
+inp_num = x_train.shape[1]        # 输入层节点数（特征数）
+out_num = 10                       # 输出节点数（0~9数字分类）
+hid_num = 9                        # 隐层节点数(可调)
+w1 = 0.2 * np.random.random((inp_num, hid_num)) - 0.1  # 输入层->隐层权重
+w2 = 0.2 * np.random.random((hid_num, out_num)) - 0.1  # 隐层->输出层权重
+hid_offset = np.zeros(hid_num)     # 隐层偏置
+out_offset = np.zeros(out_num)     # 输出层偏置
+inp_lrate = 0.3                    # 输入层权值学习率
+hid_lrate = 0.3                    # 隐层权值学习率
+err_th = 0.01                      # 学习误差门限（本代码未使用，可自行实现早停条件）
+
+# ============= 训练过程（单次遍历全部训练数据） =============
+print("开始训练...")
+
+for idx in range(samp_num):
+    # 构造 one-hot 向量作为真实标签
     t_label = np.zeros(out_num)
-    t_label[label[count]] = 1
-    # 前向过程
-    hid_value = np.dot(sample[count], w1) + hid_offset  # 隐层值
-    hid_act = get_act(hid_value)  # 隐层激活值
-    out_value = np.dot(hid_act, w2) + out_offset  # 输出层值
-    out_act = get_act(out_value)  # 输出层激活值
+    t_label[y_train[idx]] = 1
 
-    # 后向过程
-    e = t_label - out_act  # 输出值与真值间的误差
-    out_delta = e * out_act * (1 - out_act)  # 输出层delta计算
-    hid_delta = hid_act * (1 - hid_act) * np.dot(w2, out_delta)  # 隐层delta计算
-    for i in range(0, out_num):
-        w2[:, i] += hid_lrate * out_delta[i] * hid_act  # 更新隐层到输出层权向量
-    for i in range(0, hid_num):
-        w1[:, i] += inp_lrate * hid_delta[i] * sample[count]  # 更新输出层到隐层的权向量
+    # 前向传播
+    hid_value = np.dot(x_train[idx], w1) + hid_offset   # 隐层输入
+    hid_act = sigmoid(hid_value)                        # 隐层激活输出
+    out_value = np.dot(hid_act, w2) + out_offset        # 输出层输入
+    out_act = sigmoid(out_value)                        # 输出层激活输出
 
-    out_offset += hid_lrate * out_delta  # 输出层偏置更新
+    # 反向传播
+    e = t_label - out_act
+    out_delta = e * out_act * (1 - out_act)
+    hid_delta = hid_act * (1 - hid_act) * np.dot(w2, out_delta)
+
+    # 更新权重和偏置
+    w2 += hid_lrate * np.outer(hid_act, out_delta)
+    w1 += inp_lrate * np.outer(x_train[idx], hid_delta)
+    out_offset += hid_lrate * out_delta
     hid_offset += inp_lrate * hid_delta
 
-###################################################################################################
+    # 若需要，可基于误差实现早停（可选）
+    # current_error = calc_error(e)
+    # if current_error < err_th:
+    #     print(f"在 {idx} 次训练后误差低于阈值，提前结束训练.")
+    #     break
 
-# 测试网络
-###################################################################################################
-filename = 'mnist_test.mat'  # raw_input() # 换成raw_input()可自由输入文件名
-test = sio.loadmat(filename)
-test_s = test["mnist_test"]
-test_s /= 256.0
+print("训练结束")
 
-filename = 'mnist_test_labels.mat'  # raw_input() # 换成raw_input()可自由输入文件名
-testlabel = sio.loadmat(filename)
-test_l = testlabel["mnist_test_labels"]
-right = np.zeros(10)
-numbers = np.zeros(10)
-# 以上读入测试数据
-# 统计测试数据中各个数字的数目
-for i in test_l:
-    numbers[i] += 1
+# ============= 测试网络 =============
+print("开始测试...")
+numbers = np.zeros(out_num, dtype=int)
+right = np.zeros(out_num, dtype=int)
 
-for count in range(len(test_s)):
-    hid_value = np.dot(test_s[count], w1) + hid_offset  # 隐层值
-    hid_act = get_act(hid_value)  # 隐层激活值
-    out_value = np.dot(hid_act, w2) + out_offset  # 输出层值
-    out_act = get_act(out_value)  # 输出层激活值
-    if np.argmax(out_act) == test_l[count]:
-        right[test_l[count]] += 1
-print(right)
-print(numbers)
+# 统计测试集中各数字的数目
+for lbl in y_test:
+    numbers[lbl] += 1
+
+for i in range(len(x_test)):
+    hid_value = np.dot(x_test[i], w1) + hid_offset
+    hid_act = sigmoid(hid_value)
+    out_value = np.dot(hid_act, w2) + out_offset
+    out_act = sigmoid(out_value)
+    pred = np.argmax(out_act)
+    if pred == y_test[i]:
+        right[y_test[i]] += 1
+
+print("各类别预测正确数:", right)
+print("各类别样本数:", numbers)
+
 result = right / numbers
-sum = right.sum()
-print(result)
-print(sum / len(test_s))
-###################################################################################################
-# 输出网络
-###################################################################################################
-Network = open("MyNetWork", 'w')
-Network.write(str(inp_num))
-Network.write('\n')
-Network.write(str(hid_num))
-Network.write('\n')
-Network.write(str(out_num))
-Network.write('\n')
-for i in w1:
-    for j in i:
-        Network.write(str(j))
-        Network.write(' ')
-    Network.write('\n')
-Network.write('\n')
+accuracy = right.sum() / len(x_test)
+print("各类别准确率:", result)
+print("总体准确率:", accuracy)
 
-for i in w2:
-    for j in i:
-        Network.write(str(j))
-        Network.write(' ')
-Network.write('\n')
-Network.close()
+# ============= 保存网络参数 =============
+print("保存网络参数到 MyNetWork 文件...")
+with open("MyNetWork", 'w') as net_file:
+    net_file.write(f"{inp_num}\n")
+    net_file.write(f"{hid_num}\n")
+    net_file.write(f"{out_num}\n")
+    for row in w1:
+        net_file.write(" ".join(map(str, row)) + "\n")
+    net_file.write("\n")
+    for row in w2:
+        net_file.write(" ".join(map(str, row)) + "\n")
+
+print("保存完毕。")

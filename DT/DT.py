@@ -4,22 +4,25 @@
 # @File    : DT.py
 # @Project : MLWork
 
-
+import operator
+import math
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
-import operator
-from math import log
+from typing import Any, Dict, List, Tuple, Union
 
 
-def create_dataset():
+def create_dataset() -> Tuple[List[List[Any]], List[str]]:
     """
     创建示例数据集和对应的特征标签。
 
-    :return: data_set - 数据集 (list of lists)
-             labels - 特征标签 (list)
+    数据集的最后一列为类别标签，其余列为特征值。
+
+    :return:
+        dataset: 数据集，每个元素为 [feature_1, feature_2, ..., feature_n, label]
+        labels: 特征名称列表，对应 dataset 中除最后一列以外的特征含义
     """
-    data_set = [
-        [0, 0, 0, 0, 'no'],     # 特征数据和分类结果
+    dataset = [
+        [0, 0, 0, 0, 'no'],
         [0, 0, 0, 1, 'no'],
         [0, 1, 0, 1, 'yes'],
         [0, 1, 1, 0, 'yes'],
@@ -35,281 +38,313 @@ def create_dataset():
         [2, 1, 0, 2, 'yes'],
         [2, 0, 0, 0, 'no']
     ]
-    labels = ['年龄', '有工作', '有自己的房子', '信贷情况']  # 特征标签
-    return data_set, labels
+    labels = ['年龄', '有工作', '有自己的房子', '信贷情况']
+    return dataset, labels
 
 
-def create_tree(data_set, labels, feat_labels):
+def calc_shannon_ent(dataset: List[List[Any]]) -> float:
     """
-    递归构建决策树。
+    计算给定数据集的香农熵 (Shannon Entropy)。
 
-    :param data_set: 数据集
-    :param labels: 特征标签列表
-    :param feat_labels: 存储选择的最优特征标签
-    :return: 构建的决策树 (dict)
+    香农熵用于衡量数据集的不确定度，值越大不确定度越高。
+    若数据集为空，熵定义为0。
+
+    :param dataset: 数据集
+    :return: 数据集的香农熵
     """
-    # 获取当前节点的所有类别标签
-    class_list = [example[-1] for example in data_set]
-    # 如果类别完全相同，则停止划分，返回该类别
-    if class_list.count(class_list[0]) == len(class_list):
-        return class_list[0]
-    # 如果遍历完所有特征，仍不能将数据集划分成仅包含唯一类别的分组，则返回出现次数最多的类别
-    if len(data_set[0]) == 1:
-        return majority_cnt(class_list)
-    # 选择最优特征
-    best_feature = choose_best_feature_to_split(data_set)
-    # 最优特征的标签
-    best_feature_label = labels[best_feature]
-    feat_labels.append(best_feature_label)
-    # 初始化树，使用字典存储
-    my_tree = {best_feature_label: {}}
-    # 删除已经使用的特征标签
-    del(labels[best_feature])
-    # 得到列表包含的所有属性值
-    feature_values = [example[best_feature] for example in data_set]
-    # 去重，得到当前特征所有可能取值
-    unique_vals = set(feature_values)
-    # 遍历特征的所有取值，递归构建树
-    for value in unique_vals:
-        sub_labels = labels[:]
-        # 递归调用函数，构建子树
-        my_tree[best_feature_label][value] = create_tree(
-            split_data_set(data_set, best_feature, value),
-            sub_labels,
-            feat_labels
-        )
-    return my_tree
+    num_examples = len(dataset)
+    if num_examples == 0:
+        return 0.0
 
-
-def majority_cnt(class_list):
-    """
-    返回出现次数最多的分类名称。
-
-    :param class_list: 分类名称列表
-    :return: 出现次数最多的分类名称
-    """
-    class_count = {}
-    for vote in class_list:
-        if vote not in class_count.keys():
-            class_count[vote] = 0  # 初始化类别计数
-        class_count[vote] += 1
-    # 对类别出现的频率进行排序，降序排列
-    sorted_class_count = sorted(class_count.items(),
-                                key=operator.itemgetter(1),
-                                reverse=True)
-    # 返回出现次数最多的类别名称
-    return sorted_class_count[0][0]
-
-
-def choose_best_feature_to_split(data_set):
-    """
-    选择最好的数据集划分方式。
-
-    :param data_set: 数据集
-    :return: 最优特征的索引
-    """
-    num_features = len(data_set[0]) - 1  # 特征数量（减去标签列）
-    base_entropy = calc_shannon_ent(data_set)  # 计算数据集的原始香农熵
-    best_info_gain = 0.0  # 最优的信息增益
-    best_feature = -1  # 最优特征的索引
-    # 遍历所有特征
-    for i in range(num_features):
-        # 获取第i个特征的所有取值
-        feature_list = [example[i] for example in data_set]
-        unique_vals = set(feature_list)
-        new_entropy = 0.0  # 初始化新的熵
-        # 计算每种划分方式的信息熵
-        for value in unique_vals:
-            sub_data_set = split_data_set(data_set, i, value)  # 划分数据集
-            prob = len(sub_data_set) / float(len(data_set))
-            new_entropy += prob * calc_shannon_ent(sub_data_set)
-        # 计算信息增益
-        info_gain = base_entropy - new_entropy
-        # 更新信息增益和最优特征
-        if info_gain > best_info_gain:
-            best_info_gain = info_gain
-            best_feature = i
-    return best_feature
-
-
-def split_data_set(data_set, axis, value):
-    """
-    按照给定特征划分数据集。
-
-    :param data_set: 待划分的数据集
-    :param axis: 划分数据集的特征索引
-    :param value: 特征的取值
-    :return: 划分后的数据集
-    """
-    ret_data_set = []
-    for feat_vec in data_set:
-        if feat_vec[axis] == value:
-            # 去掉axis特征，构建新的特征向量
-            reduced_feat_vec = feat_vec[:axis] + feat_vec[axis+1:]
-            ret_data_set.append(reduced_feat_vec)
-    return ret_data_set
-
-
-def calc_shannon_ent(data_set):
-    """
-    计算给定数据集的香农熵。
-
-    :param data_set: 数据集
-    :return: 香农熵
-    """
-    num_examples = len(data_set)  # 数据集总样本数
     label_counts = {}
-    # 统计每个标签出现的次数
-    for feat_vec in data_set:
-        current_label = feat_vec[-1]  # 提取标签
-        if current_label not in label_counts.keys():
-            label_counts[current_label] = 0
-        label_counts[current_label] += 1
-    # 计算香农熵
+    for feat_vec in dataset:
+        current_label = feat_vec[-1]
+        label_counts[current_label] = label_counts.get(current_label, 0) + 1
+
     shannon_ent = 0.0
-    for key in label_counts:
-        prob = float(label_counts[key]) / num_examples  # 概率值
-        shannon_ent -= prob * log(prob, 2)  # 熵值累加
+    for count in label_counts.values():
+        prob = count / num_examples
+        shannon_ent -= prob * math.log2(prob)
     return shannon_ent
 
 
-def get_num_leafs(my_tree):
+def split_dataset(dataset: List[List[Any]], feature_index: int, value: Any) -> List[List[Any]]:
+    """
+    按照给定特征值划分数据集。
+
+    将数据集中指定特征为 feature_index 的值等于 value 的样本选取出来，并去除该特征列。
+
+    :param dataset: 待划分的数据集
+    :param feature_index: 待划分的特征索引
+    :param value: 划分依据的特征值
+    :return: 划分后的子数据集，其中不再包含 feature_index 这一列
+    """
+    sub_dataset = []
+    for feat_vec in dataset:
+        if feat_vec[feature_index] == value:
+            # 切片去除当前特征列
+            reduced_feat_vec = feat_vec[:feature_index] + feat_vec[feature_index + 1:]
+            sub_dataset.append(reduced_feat_vec)
+    return sub_dataset
+
+
+def choose_best_feature_to_split(dataset: List[List[Any]]) -> int:
+    """
+    选择最优特征进行划分，使用信息增益作为评估指标。
+
+    信息增益 = 数据集划分前后的熵差值。
+    熵降低最多的特征即为最优特征。
+
+    若无法有效划分，返回 -1。
+
+    :param dataset: 数据集
+    :return: 最优特征的索引
+    """
+    if len(dataset) == 0 or len(dataset[0]) <= 1:
+        return -1
+
+    num_features = len(dataset[0]) - 1
+    base_entropy = calc_shannon_ent(dataset)
+    best_info_gain = 0.0
+    best_feature = -1
+
+    for i in range(num_features):
+        # 获取当前特征的所有取值并去重
+        feature_values = {example[i] for example in dataset}
+        new_entropy = 0.0
+        for value in feature_values:
+            sub_dataset = split_dataset(dataset, i, value)
+            prob = len(sub_dataset) / len(dataset)
+            new_entropy += prob * calc_shannon_ent(sub_dataset)
+
+        info_gain = base_entropy - new_entropy
+        if info_gain > best_info_gain:
+            best_info_gain = info_gain
+            best_feature = i
+
+    return best_feature
+
+
+def majority_cnt(class_list: List[str]) -> str:
+    """
+    返回列表中出现次数最多的类别。
+
+    当特征用尽仍无法达成完全分类时使用投票表决返回类别。
+
+    :param class_list: 类别名称列表
+    :return: 出现次数最多的类别
+    """
+    class_count = {}
+    for vote in class_list:
+        class_count[vote] = class_count.get(vote, 0) + 1
+
+    # 对类别按照出现次数降序排序，返回出现次数最多的类别
+    sorted_class_count = sorted(class_count.items(), key=operator.itemgetter(1), reverse=True)
+    return sorted_class_count[0][0]
+
+
+def create_tree(
+        dataset: List[List[Any]],
+        labels: List[str],
+        feat_labels: List[str]
+) -> Union[Dict[str, Any], str]:
+    """
+    递归构建决策树。
+
+    步骤：
+    1. 若所有样本类别相同，返回该类别。
+    2. 若特征用尽，返回类别出现最多的值。
+    3. 否则，选择最优特征划分数据集，创建树的分支并递归构建子树。
+
+    :param dataset: 数据集
+    :param labels: 特征标签列表
+    :param feat_labels: 存储已选择的特征标签名称，用于后续查询
+    :return: 构建的决策树（字典）或类别名称（字符串）
+    """
+    # 提取数据集的所有类别标签（末列）
+    class_list = [example[-1] for example in dataset]
+
+    # 情况1：类别完全相同则直接返回
+    if class_list.count(class_list[0]) == len(class_list):
+        return class_list[0]
+
+    # 情况2：特征已用尽，无法继续划分，返回最多数投票类别
+    if len(dataset[0]) == 1:
+        return majority_cnt(class_list)
+
+    # 选择信息增益最大的特征进行划分
+    best_feature = choose_best_feature_to_split(dataset)
+    if best_feature == -1:
+        # 没有特征可用于划分，直接返回多数类别
+        return majority_cnt(class_list)
+
+    best_feature_label = labels[best_feature]
+    feat_labels.append(best_feature_label)
+
+    # 创建树并从labels中删除已用特征
+    my_tree = {best_feature_label: {}}
+    del (labels[best_feature])
+
+    # 得到当前最优特征的所有可能取值
+    feature_values = {example[best_feature] for example in dataset}
+
+    # 对每个取值递归构建子树
+    for value in feature_values:
+        sub_labels = labels[:]
+        sub_dataset = split_dataset(dataset, best_feature, value)
+        my_tree[best_feature_label][value] = create_tree(sub_dataset, sub_labels, feat_labels)
+
+    return my_tree
+
+
+def get_num_leafs(tree: Dict[str, Any]) -> int:
     """
     获取决策树的叶子节点数目。
 
-    :param my_tree: 决策树
+    递归遍历整棵树，统计非字典节点的个数。
+
+    :param tree: 决策树
     :return: 叶子节点数目
     """
     num_leafs = 0
-    first_str = next(iter(my_tree))  # 获取第一个关键字
-    second_dict = my_tree[first_str]  # 获取对应的子树
-    for key in second_dict.keys():
-        # 判断节点是否是字典，从而判断是否为叶子节点
+    first_str = next(iter(tree))
+    second_dict = tree[first_str]
+    for key in second_dict:
         if isinstance(second_dict[key], dict):
-            num_leafs += get_num_leafs(second_dict[key])  # 递归计算叶子节点
+            num_leafs += get_num_leafs(second_dict[key])
         else:
-            num_leafs += 1  # 叶子节点计数加1
+            num_leafs += 1
     return num_leafs
 
 
-def get_tree_depth(my_tree):
+def get_tree_depth(tree: Dict[str, Any]) -> int:
     """
     获取决策树的深度。
 
-    :param my_tree: 决策树
+    深度为最长路径上节点数的最大值。
+
+    :param tree: 决策树
     :return: 树的深度
     """
-    max_depth = 0  # 初始化最大深度
-    first_str = next(iter(my_tree))  # 获取第一个关键字
-    second_dict = my_tree[first_str]  # 获取对应的子树
-    for key in second_dict.keys():
+    max_depth = 0
+    first_str = next(iter(tree))
+    second_dict = tree[first_str]
+    for key in second_dict:
         if isinstance(second_dict[key], dict):
-            this_depth = 1 + get_tree_depth(second_dict[key])  # 递归计算深度
+            this_depth = 1 + get_tree_depth(second_dict[key])
         else:
             this_depth = 1
-        if this_depth > max_depth:
-            max_depth = this_depth  # 更新最大深度
+        max_depth = max(max_depth, this_depth)
     return max_depth
 
 
-def plot_node(node_txt, center_pt, parent_pt, node_type):
+def plot_node(node_txt: str, center_pt: Tuple[float, float], parent_pt: Tuple[float, float], node_type: Dict[str, Any]):
     """
-    绘制节点。
+    绘制节点（决策节点或叶子节点）。
 
-    :param node_txt: 节点文本
+    :param node_txt: 节点文本（特征名称或类别值）
     :param center_pt: 当前节点坐标
     :param parent_pt: 父节点坐标
-    :param node_type: 节点类型（决策节点或叶子节点）
+    :param node_type: 节点图形格式（字典，包含boxstyle与颜色等信息）
     """
-    arrow_args = dict(arrowstyle="<-")  # 定义箭头格式
-    font = FontProperties(fname="C:/Windows/Fonts/simsun.ttc", size=14)  # 设置字体
-    # 绘制节点
+    arrow_args = dict(arrowstyle="<-")
+    font = FontProperties(fname="/System/Library/Fonts/Supplemental/Songti.ttc", size=14)
     create_plot.ax1.annotate(
         node_txt,
         xy=parent_pt,
         xycoords='axes fraction',
         xytext=center_pt,
         textcoords='axes fraction',
-        va="center",
-        ha="center",
+        va="center", ha="center",
         bbox=node_type,
         arrowprops=arrow_args,
         fontproperties=font
     )
 
 
-def plot_mid_text(center_pt, parent_pt, txt_string):
+def plot_mid_text(center_pt: Tuple[float, float], parent_pt: Tuple[float, float], txt_string: str):
     """
-    在父子节点之间填充文本信息。
+    在父子节点之间填充文本信息（如边的属性值）。
 
     :param center_pt: 当前节点坐标
     :param parent_pt: 父节点坐标
-    :param txt_string: 标注的文本内容
+    :param txt_string: 要绘制的文本（通常是特征取值）
     """
-    x_mid = (parent_pt[0] - center_pt[0]) / 2.0 + center_pt[0]  # 计算文本位置的x坐标
-    y_mid = (parent_pt[1] - center_pt[1]) / 2.0 + center_pt[1]  # 计算文本位置的y坐标
+    x_mid = (parent_pt[0] - center_pt[0]) / 2.0 + center_pt[0]
+    y_mid = (parent_pt[1] - center_pt[1]) / 2.0 + center_pt[1]
     create_plot.ax1.text(x_mid, y_mid, txt_string, va="center", ha="center", rotation=30)
 
 
-def plot_tree(my_tree, parent_pt, node_txt):
+def plot_tree(tree: Dict[str, Any], parent_pt: Tuple[float, float], node_txt: str):
     """
     递归绘制决策树。
 
-    :param my_tree: 决策树
+    根据树的结构，不断划分并绘制相应的节点和连线。
+    使用全局变量 plot_tree.total_w, plot_tree.total_d, plot_tree.x_off, plot_tree.y_off
+    来控制节点分布。
+
+    :param tree: 决策树
     :param parent_pt: 父节点坐标
-    :param node_txt: 节点文本
+    :param node_txt: 父子节点连线上显示的文本
     """
-    decision_node = dict(boxstyle="sawtooth", fc="0.8")  # 决策节点格式
-    leaf_node = dict(boxstyle="round4", fc="0.8")  # 叶子节点格式
-    num_leafs = get_num_leafs(my_tree)  # 当前子树的叶子节点数目
-    depth = get_tree_depth(my_tree)  # 当前子树的深度
-    first_str = next(iter(my_tree))  # 根节点标签
-    # 计算根节点的位置
+    decision_node = dict(boxstyle="sawtooth", fc="0.8")
+    leaf_node = dict(boxstyle="round4", fc="0.8")
+
+    num_leafs = get_num_leafs(tree)
+    first_str = next(iter(tree))
     center_pt = (
         plot_tree.x_off + (1.0 + float(num_leafs)) / 2.0 / plot_tree.total_w,
         plot_tree.y_off
     )
-    # 标注有向边属性值
+
+    # 绘制父子节点之间的属性值（边信息）
     plot_mid_text(center_pt, parent_pt, node_txt)
     # 绘制决策节点
     plot_node(first_str, center_pt, parent_pt, decision_node)
-    second_dict = my_tree[first_str]  # 子树
-    plot_tree.y_off = plot_tree.y_off - 1.0 / plot_tree.total_d  # 下移y坐标
-    for key in second_dict.keys():
+    second_dict = tree[first_str]
+
+    # 下移 y 坐标，用于绘制子节点
+    plot_tree.y_off = plot_tree.y_off - 1.0 / plot_tree.total_d
+
+    for key in second_dict:
         if isinstance(second_dict[key], dict):
             # 递归绘制子树
             plot_tree(second_dict[key], center_pt, str(key))
         else:
-            # 更新x坐标，绘制叶子节点
+            # 绘制叶子节点
             plot_tree.x_off = plot_tree.x_off + 1.0 / plot_tree.total_w
             plot_node(second_dict[key], (plot_tree.x_off, plot_tree.y_off), center_pt, leaf_node)
             plot_mid_text((plot_tree.x_off, plot_tree.y_off), center_pt, str(key))
-    plot_tree.y_off = plot_tree.y_off + 1.0 / plot_tree.total_d  # 上移y坐标，回溯到父节点
+
+    # 子树绘制完成后，上移 y 坐标回到父节点层次
+    plot_tree.y_off = plot_tree.y_off + 1.0 / plot_tree.total_d
 
 
-def create_plot(in_tree):
+def create_plot(in_tree: Dict[str, Any]):
     """
-    创建决策树的绘制面板并启动绘制过程。
+    初始化绘图界面并调用函数绘制决策树。
 
     :param in_tree: 决策树
     """
-    fig = plt.figure(1, facecolor='white')  # 创建画布
-    fig.clf()  # 清空画布
+    fig = plt.figure(1, facecolor='white')
+    fig.clf()
+
     axprops = dict(xticks=[], yticks=[])
-    create_plot.ax1 = plt.subplot(111, frameon=False, **axprops)  # 无边框，无坐标轴
-    # 存储树的宽度和深度
+    create_plot.ax1 = plt.subplot(111, frameon=False, **axprops)
+
     plot_tree.total_w = float(get_num_leafs(in_tree))
     plot_tree.total_d = float(get_tree_depth(in_tree))
-    plot_tree.x_off = -0.5 / plot_tree.total_w  # x轴偏移
-    plot_tree.y_off = 1.0  # y轴起始位置
-    # 绘制决策树
+    plot_tree.x_off = -0.5 / plot_tree.total_w
+    plot_tree.y_off = 1.0
+
+    # 开始绘制决策树
     plot_tree(in_tree, (0.5, 1.0), '')
-    plt.show()  # 显示绘制结果
+    plt.show()
 
 
 if __name__ == '__main__':
-    data_set, labels = create_dataset()
+    dataset, labels = create_dataset()
     feat_labels = []
-    my_tree = create_tree(data_set, labels, feat_labels)
-    print(feat_labels)
+    my_tree = create_tree(dataset, labels[:], feat_labels)  # 使用 labels[:] 复制一份，以免原列表被修改
+    print("Feature Labels chosen order:", feat_labels)
     create_plot(my_tree)
